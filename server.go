@@ -13,7 +13,7 @@ import (
 ////////////////////////////////////
 // const:
 ////////////////////////////////////
-const max_user int = 100
+// const max_user int = 100
 
 ////////////////////////////////////
 // struct:
@@ -28,7 +28,7 @@ type User struct {
 
 type Channel struct {
 	channelName 	string
-	userArray 		[]string //map[string]bool <- for unique
+	userArray 		map[string]User
 	getMessage chan Msg
 }
 
@@ -202,23 +202,52 @@ func handleConnection(conn net.Conn, server Server) {
 
 			switch strings.ToLower(commandSplit[0]) {
 			case "/exit":
-				break
-			case "/nick": // allNick		map[string]bool
+				// 1. delete user in the channel
+				// 2. user's currentChannel set to ""
+				thisChannel := server.allUser[u].currentChannel
+				delete(server.allChannel[thisChannel].userArray, u)
+			case "/nick": // allNick map[string]bool
 				if len(commandSplit) != 2 {
-					fmt.Println("Usage: /nick [new nick name]")
+					io.WriteString(conn, "Usage: /nick [new nick name]")
 				}else{
 					// Change user's nick name:
 					// 1. modify server.allUser.uNick
 					// 2. delete server.allNick: delete(m, "route")
 					// 3. add new nickName: server.allNick
-					oriNick := server.allUser.uNick
+					oriNick := server.allUser[u].uNick
+					newNick := strings.Trim(commandSplit[1], " ")
+					server.allUser[u].uNick = newNick
+					delete(server.allNick, oriNick)
+					server.allNick[newNick] = true
 				}
 			case "/join":
-			case "/names": // allUser 	map[string]*User
-			case "/list": // allChannel	map[string]*Channel
+			case "/names": // allUser map[string]*User
+				if len(commandSplit) != 1 {
+					io.WriteString(conn, "Usage: /names")
+				}else{
+					// List all user name: seprate by channel
+					for room, chStruct := range server.allChannel {
+						io.WriteString(conn, "Channel - " + room + "\n\tUsers: ")
+						for _, username := range chStruct.userArray {
+							io.WriteString(conn, username + " ")
+						}
+						io.WriteString(conn, "\n")
+					}
+				}
+			case "/list": // allChannel map[string]*Channel
+				if len(commandSplit) != 1 {
+					io.WriteString(conn, "Usage: /list")
+				}else{
+					// List all Channel:
+					io.WriteString(conn, "Channel - ")
+					for room, _ := range server.allChannel {
+						io.WriteString(conn, room + " ")
+					}
+					io.WriteString(conn, "\n")
+				}
 			case "/privmsg":
 			//case "/pass_nick_user":
-			default:
+			default: // set msg to all user in the same channel
 			}
 			io.WriteString(conn, chatFormat(*server.allUser[u]))
 		}

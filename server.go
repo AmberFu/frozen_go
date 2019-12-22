@@ -28,7 +28,7 @@ type User struct {
 
 type Channel struct {
 	channelName 	string
-	userArray 		map[string]User
+	userMap 		map[string]*User
 	getMessage chan Msg
 }
 
@@ -112,8 +112,6 @@ func chatFormat(u User) string {
 	return "\n"  + u.currentChannel + "/" + u.uNick + " > "
 }
 
-
-
 func handleConnection(conn net.Conn, server Server) {
 	defer conn.Close()
 
@@ -170,13 +168,15 @@ func handleConnection(conn net.Conn, server Server) {
 	if chatRoom, ok := server.allChannel[chatroom]; ok {
 		// update user info of currentChannel
 		server.allUser[uname].currentChannel = chatroom
-		// add user into channel (Q: do I need to check user first?! Or use map struct)
-		chatRoom.userArray = append(chatRoom.userArray, uname)
+		// add user into channel:
+
+		chatRoom.userMap[uname] = server.allUser[uname]
 	// If the chat room is not exist:
 	} else {
 		server.allChannel[chatroom] = new(Channel)
 		server.allChannel[chatroom].channelName = chatroom
-		server.allChannel[chatroom].userArray = append(server.allChannel[chatroom].userArray, uname)
+		server.allChannel[chatroom].userMap = make(map[string]*User)
+		server.allChannel[chatroom].userMap[uname] = server.allUser[uname]
 		server.allChannel[chatroom].getMessage = make(chan Msg, 10)
 		// update user info of currentChannel
 		server.allUser[uname].currentChannel = chatroom
@@ -185,7 +185,7 @@ func handleConnection(conn net.Conn, server Server) {
 	// for debug...
 	for k,v := range server.allChannel {
 		fmt.Print("\nChannel: " + k + " , userArray = ")
-		fmt.Println(v.userArray)
+		fmt.Println(v.userMap)
 	}
 
 	io.WriteString(conn, "\n" + uname + " join the " + chatroom + "\n")
@@ -205,10 +205,12 @@ func handleConnection(conn net.Conn, server Server) {
 				// 1. delete user in the channel
 				// 2. user's currentChannel set to ""
 				thisChannel := server.allUser[u].currentChannel
-				delete(server.allChannel[thisChannel].userArray, u)
+				delete(server.allChannel[thisChannel].userMap, u)
+				server.allUser[u].currentChannel = ""
+				return
 			case "/nick": // allNick map[string]bool
 				if len(commandSplit) != 2 {
-					io.WriteString(conn, "Usage: /nick [new nick name]")
+					io.WriteString(conn, "Usage: /nick newNickName")
 				}else{
 					// Change user's nick name:
 					// 1. modify server.allUser.uNick
@@ -221,27 +223,52 @@ func handleConnection(conn net.Conn, server Server) {
 					server.allNick[newNick] = true
 				}
 			case "/join":
-			case "/names": // allUser map[string]*User
-				if len(commandSplit) != 1 {
-					io.WriteString(conn, "Usage: /names")
+				if len(commandSplit) != 2 {
+					io.WriteString(conn, "Usage: /join anotherChannel")
 				}else{
+					// Let user out of channel and join another one
+					// 1. Find the original channel an delete the user
+					// 2. Check new channel: if exist add user, if not create one
+					// 3. server.allUser[u].currentChannel => new channel
+					oriChannel := server.allUser[u].currentChannel
+					delete(server.allChannel[oriChannel].userMap, u)
+					if ch, ok := server.allChannel[commandSplit[1]]; ok{
+						ch.userMap
+					}
+				}
+
+			case "/names": // allUser map[string]*User
+				if len(commandSplit) == 2 {
+					// finding specific channel and list all user:
+					for room, chStruct := range server.allChannel {
+						if room == commandSplit[1] {
+							io.WriteString(conn, "Channel - " + room + "\n\tUsers: ")
+							for username, _ := range chStruct.userMap {
+								io.WriteString(conn, username + " ")
+							}
+						}else{
+							io.WriteString(conn, "Cannot find this channel.\n")
+						}
+					}
+				}else if len(commandSplit) == 1 {
 					// List all user name: seprate by channel
 					for room, chStruct := range server.allChannel {
 						io.WriteString(conn, "Channel - " + room + "\n\tUsers: ")
-						for _, username := range chStruct.userArray {
+						for username, _ := range chStruct.userMap {
 							io.WriteString(conn, username + " ")
 						}
 						io.WriteString(conn, "\n")
 					}
+				}else{
+					io.WriteString(conn, "Usage: /names [channel name]")
 				}
 			case "/list": // allChannel map[string]*Channel
 				if len(commandSplit) != 1 {
 					io.WriteString(conn, "Usage: /list")
 				}else{
 					// List all Channel:
-					io.WriteString(conn, "Channel - ")
 					for room, _ := range server.allChannel {
-						io.WriteString(conn, room + " ")
+						io.WriteString(conn, "Channel - " + room + "\n")
 					}
 					io.WriteString(conn, "\n")
 				}

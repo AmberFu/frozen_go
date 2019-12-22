@@ -201,6 +201,7 @@ func handleConnection(conn net.Conn, server Server) {
 			// userCurrChatRoomName := userMap[u].currentChannel
 
 			switch strings.ToLower(commandSplit[0]) {
+			/////////// EXIT:
 			case "/exit":
 				// 1. delete user in the channel
 				// 2. user's currentChannel set to ""
@@ -208,6 +209,7 @@ func handleConnection(conn net.Conn, server Server) {
 				delete(server.allChannel[thisChannel].userMap, u)
 				server.allUser[u].currentChannel = ""
 				return
+			/////////// NICK:
 			case "/nick": // allNick map[string]bool
 				if len(commandSplit) != 2 {
 					io.WriteString(conn, "Usage: /nick newNickName")
@@ -222,21 +224,31 @@ func handleConnection(conn net.Conn, server Server) {
 					delete(server.allNick, oriNick)
 					server.allNick[newNick] = true
 				}
+			/////////// JOIN:
 			case "/join":
 				if len(commandSplit) != 2 {
 					io.WriteString(conn, "Usage: /join anotherChannel")
 				}else{
 					// Let user out of channel and join another one
 					// 1. Find the original channel an delete the user
-					// 2. Check new channel: if exist add user, if not create one
-					// 3. server.allUser[u].currentChannel => new channel
 					oriChannel := server.allUser[u].currentChannel
+					newChannel := strings.Trim(commandSplit[1], " ")
 					delete(server.allChannel[oriChannel].userMap, u)
-					if ch, ok := server.allChannel[commandSplit[1]]; ok{
-						ch.userMap
+					// 2. Check new channel: if exist add user, if not create one
+					if ch, ok := server.allChannel[newChannel]; ok{
+						ch.userMap[u] = server.allUser[u]
+					}else{
+						// create new channel:
+						server.allChannel[newChannel] = new(Channel)
+						server.allChannel[newChannel].channelName = newChannel
+						server.allChannel[newChannel].userMap = make(map[string]*User)
+						server.allChannel[newChannel].userMap[u] = server.allUser[u]
+						server.allChannel[newChannel].getMessage = make(chan Msg, 10)
 					}
+					// 3. server.allUser[u].currentChannel => new channel
+					server.allUser[u].currentChannel = newChannel
 				}
-
+			/////////// NAMES:
 			case "/names": // allUser map[string]*User
 				if len(commandSplit) == 2 {
 					// finding specific channel and list all user:
@@ -262,6 +274,7 @@ func handleConnection(conn net.Conn, server Server) {
 				}else{
 					io.WriteString(conn, "Usage: /names [channel name]")
 				}
+			/////////// LIST:
 			case "/list": // allChannel map[string]*Channel
 				if len(commandSplit) != 1 {
 					io.WriteString(conn, "Usage: /list")
@@ -272,8 +285,32 @@ func handleConnection(conn net.Conn, server Server) {
 					}
 					io.WriteString(conn, "\n")
 				}
+			/////////// PRIVMSG:
 			case "/privmsg":
-			//case "/pass_nick_user":
+			/////////// PART:
+			case "/part":
+				if len(commandSplit) != 1 {
+					io.WriteString(conn, "Usage: /part")
+				}else{
+					// 
+					// 1. Find the original channel an delete the user
+					oriChannel := server.allUser[u].currentChannel
+					delete(server.allChannel[oriChannel].userMap, u)
+					// 2. server.allUser[u].currentChannel => default
+					// 2-1. Check default channel: if exist add user, if not create one
+					if ch, ok := server.allChannel["default"]; ok{
+						ch.userMap[u] = server.allUser[u]
+					}else{
+						// create new channel:
+						server.allChannel["default"] = new(Channel)
+						server.allChannel["default"].channelName = "default"
+						server.allChannel["default"].userMap = make(map[string]*User)
+						server.allChannel["default"].userMap[u] = server.allUser[u]
+						server.allChannel["default"].getMessage = make(chan Msg, 10)
+					}
+					server.allUser[u].currentChannel = "default"
+				}
+			/////////// NORMAL MESSAGE:
 			default: // set msg to all user in the same channel
 			}
 			io.WriteString(conn, chatFormat(*server.allUser[u]))

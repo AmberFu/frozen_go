@@ -122,7 +122,12 @@ func handleConnection(conn net.Conn) {
 	}
 	io.WriteString(conn, "\n" + uname + "join the " + chatroom + "\n")
 
-	// Wait to 
+	// Wait user to input: -> maybe create a real function... and use gorutine
+	func () {
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
+	}
 }
 
 ////////////////////////////////////

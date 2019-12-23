@@ -36,11 +36,6 @@ type Server struct {
 	allChannel	map[string]*Channel
 }
 
-// type chanHolder struct {
-// 	setChanMsg chan Msg
-// 	getChanMsg chan Msg
-// }
-
 ////////////////////////////////////
 // functions:
 ////////////////////////////////////
@@ -58,16 +53,66 @@ func only_take_isprint(s string) string {
 }
 
 func chatFormat(u User) string {
-	return "\n"  + u.currentChannel + "/" + u.uNick + " > "
+	return "\n["  + u.currentChannel + "] " + u.uNick + " > "
 }
 
-func private_msg(destConn net.Conn, msg Msg) {
-	io.WriteString(destConn, "\n" + msg.uName + " sent you message: " + msg.says)
+func private_msg(u *User, msg Msg) {
+	io.WriteString(u.conn, "\n" + msg.uName + " sent you message: " + msg.says + "\n")
+	io.WriteString(u.conn, chatFormat(*u))
+}
+
+func public_msg(u User, msg Msg) {
+	if msg.uName == ""{
+		io.WriteString(u.conn, "\n" + msg.says + "\n")
+	}else{
+		io.WriteString(u.conn, "\n" + msg.uName + ": " + msg.says + "\n")
+	}
+	io.WriteString(u.conn, chatFormat(u))
+}
+
+func getAllUsersConn(targetChannelName string, server Server, self string) []*User {
+	var connArray []*User
+	// Use channel name to get all user, and append connection into an array:
+	for uname, uptr := range server.allChannel[targetChannelName].userMap{
+		if uname != self {
+			connArray = append(connArray, uptr)
+		}
+	}
+	return connArray
+}
+
+func sentMultiMsg(channelConnArray []*User, msg Msg){
+	for _ , con := range channelConnArray{
+		public_msg(*con, msg)
+	}
+}
+
+func sentChannelMsg(targetChannelName string, server Server, msg Msg, self string){
+	connArr := getAllUsersConn(targetChannelName, server, self)
+	sentMultiMsg(connArr, msg)
+}
+
+func countUser(server Server) int {
+	i := 0
+	for range server.allUser {
+		i++
+	}
+	return i
+}
+
+func countChannel(server Server) int {
+	i := 0
+	for range server.allChannel {
+		i++
+	}
+	return i
 }
 
 func handleConnection(conn net.Conn, server Server) {
 	defer conn.Close()
 
+	fmt.Println("")
+	io.WriteString(conn, "\n##### WELCOME TO IRC SERVER #####\n\n")
 	// 1. INPUT user name:
 	io.WriteString(conn, "Please enter your name: ")
 	scanner := bufio.NewScanner(conn)
@@ -80,7 +125,7 @@ func handleConnection(conn net.Conn, server Server) {
 		io.WriteString(conn, "Please enter your password: ")
 		scanner.Scan()
 		inputPassword := scanner.Text()
-		for i := 0; (inputPassword != existUser.passward || i > 3); i++ {
+		for inputPassword != existUser.passward {
 			io.WriteString(conn, "Try again: ")
 			scanner.Scan()
 			inputPassword = scanner.Text()
@@ -91,6 +136,7 @@ func handleConnection(conn net.Conn, server Server) {
 		//		- add uName
 		server.allUser[uname] = new(User)
 		server.allUser[uname].uName = uname
+		fmt.Println("From ", conn.RemoteAddr().String(), "\t", uname, " JOIN to OUR IRC SITE!")
 		// 2. INPUT nick name:
 		io.WriteString(conn, "Please enter your nick name: ")
 		scanner.Scan()
@@ -100,7 +146,7 @@ func handleConnection(conn net.Conn, server Server) {
 		for nickOk {
 			io.WriteString(conn, "This nickName has been taken, please choose another nick name: ")
 			scanner.Scan()
-			nickname := scanner.Text()
+			nickname = scanner.Text()
 			_, nickOk = server.allNick[nickname]
 		}
 		server.allNick[nickname] = server.allUser[uname]
@@ -110,8 +156,6 @@ func handleConnection(conn net.Conn, server Server) {
 		scanner.Scan()
 		inputPassword := scanner.Text()
 		server.allUser[uname].passward = inputPassword
-		// fmt.Println("userMap = \n", server.allUser) // for debug...
-		// fmt.Println("nickMap = \n", server.allNick) // for debug...
 		// 4. Initionalize the message:
 		server.allUser[uname].conn = conn
 	}
@@ -124,8 +168,13 @@ func handleConnection(conn net.Conn, server Server) {
 		// update user info of currentChannel
 		server.allUser[uname].currentChannel = chatroom
 		// add user into channel:
-
 		chatRoom.userMap[uname] = server.allUser[uname]
+		// sent MSG to the chat room:
+		thisMsg := Msg{
+			uName: "",
+			says: "\n" + uname + " join the channel...\n",
+		}
+		sentChannelMsg(chatroom, server, thisMsg, uname)
 	// If the chat room is not exist:
 	} else {
 		server.allChannel[chatroom] = new(Channel)
@@ -134,6 +183,7 @@ func handleConnection(conn net.Conn, server Server) {
 		server.allChannel[chatroom].userMap[uname] = server.allUser[uname]
 		// update user info of currentChannel
 		server.allUser[uname].currentChannel = chatroom
+		fmt.Println("NEW CHANNEL HAS BEEN CREATED: " + chatroom)
 	}
 	// for debug...
 	// for k,v := range server.allChannel {
@@ -149,7 +199,6 @@ func handleConnection(conn net.Conn, server Server) {
 		for scanner.Scan() {
 			// get input message and tolower:
 			commandSplit := strings.SplitN(scanner.Text(), " ", 2)
-			// use regex to distinct COMMAND or chat message:
 			// user's current chatroom
 			// userCurrChatRoomName := userMap[u].currentChannel
 
@@ -165,22 +214,26 @@ func handleConnection(conn net.Conn, server Server) {
 			/////////// NICK:
 			case "/nick": // allNick map[string]bool
 				if len(commandSplit) != 2 {
-					io.WriteString(conn, "Usage: /nick newNickName")
+					io.WriteString(conn, "Usage: /nick newNickName\n")
 				}else{
-					// Change user's nick name:
-					// 1. modify server.allUser.uNick
-					// 2. delete server.allNick: delete(m, "route")
-					// 3. add new nickName: server.allNick
 					oriNick := server.allUser[u].uNick
 					newNick := strings.Trim(commandSplit[1], " ")
-					server.allUser[u].uNick = newNick
-					delete(server.allNick, oriNick)
-					server.allNick[newNick] = server.allUser[uname]
+					_, nickOk := server.allNick[newNick]
+					if nickOk {
+						io.WriteString(conn, "This nickName has been taken, please try again.")
+					}else{
+						// 1. modify server.allUser.uNick
+						server.allUser[u].uNick = newNick
+						// 2. delete server.allNick: delete(m, "route")
+						delete(server.allNick, oriNick)
+						// 3. add new nickName: server.allNick
+						server.allNick[newNick] = server.allUser[uname]
+					}
 				}
 			/////////// JOIN:
 			case "/join":
 				if len(commandSplit) != 2 {
-					io.WriteString(conn, "Usage: /join anotherChannel")
+					io.WriteString(conn, "Usage: /join anotherChannel\n")
 				}else{
 					// Let user out of channel and join another one
 					// 1. Find the original channel an delete the user
@@ -196,40 +249,56 @@ func handleConnection(conn net.Conn, server Server) {
 						server.allChannel[newChannel].channelName = newChannel
 						server.allChannel[newChannel].userMap = make(map[string]*User)
 						server.allChannel[newChannel].userMap[u] = server.allUser[u]
+						fmt.Println("NEW CHANNEL HAS BEEN CREATED: " + chatroom)
 					}
 					// 3. server.allUser[u].currentChannel => new channel
 					server.allUser[u].currentChannel = newChannel
+					// 4. Sent Channel message: says good-bye to original channel!
+					byeMsg := Msg{
+						uName: "",
+						says: "\n" + u + " left the channel...\n",
+					}
+					sentChannelMsg(oriChannel, server, byeMsg, u)
+					// 5. Sent Channel message: says Hi to joined channel!
+					hiMsg := Msg{
+						uName: "",
+						says: "\n" + u + " join the channel...\n",
+					}
+					sentChannelMsg(newChannel, server, hiMsg, u)
 				}
 			/////////// NAMES: List all nick name
-			case "/names": // allNick map[string]*User
+			case "/names": // allChannel map[string]*Channel -> userMap map[string]*User -> uNick
 				if len(commandSplit) == 2 {
+					f := false
 					// finding specific channel and list all user:
 					for room, chStruct := range server.allChannel {
 						if room == commandSplit[1] {
-							io.WriteString(conn, "Channel - " + room + "\n\tUsers: ")
-							for username, _ := range chStruct.userMap {
-								io.WriteString(conn, username + " ")
+							f = true
+							io.WriteString(conn, "Channel - " + room + "\n")
+							for _, Uptr := range chStruct.userMap {
+								io.WriteString(conn, "\tUsers: " + Uptr.uNick + "\n")
 							}
-						}else{
-							io.WriteString(conn, "Cannot find this channel.\n")
 						}
 					}
+					if f == false {
+						io.WriteString(conn, "Cannot find this channel.\n")
+					}
 				}else if len(commandSplit) == 1 {
-					// List all user name: seprate by channel
+					// List all user's NICK name: seprate by channel
 					for room, chStruct := range server.allChannel {
-						io.WriteString(conn, "Channel - " + room + "\n\tUsers: ")
-						for username, _ := range chStruct.userMap {
-							io.WriteString(conn, username + " ")
+						io.WriteString(conn, "Channel - " + room + "\n")
+						for _, Uptr := range chStruct.userMap {
+							io.WriteString(conn, "\tUsers: " + Uptr.uNick + "\n")
 						}
 						io.WriteString(conn, "\n")
 					}
 				}else{
-					io.WriteString(conn, "Usage: /names [channel name]")
+					io.WriteString(conn, "Usage: /names [channel name]\n")
 				}
 			/////////// LIST:
 			case "/list": // allChannel map[string]*Channel
 				if len(commandSplit) != 1 {
-					io.WriteString(conn, "Usage: /list")
+					io.WriteString(conn, "Usage: /list\n")
 				}else{
 					// List all Channel:
 					for room, _ := range server.allChannel {
@@ -241,29 +310,28 @@ func handleConnection(conn net.Conn, server Server) {
 			case "/privmsg":
 				privArgv := strings.SplitN(scanner.Text(), " ", 3)
 				if len(privArgv) != 3 {
-					io.WriteString(conn, "Usage: /privmsg NickName Message")
+					io.WriteString(conn, "Usage: /privmsg NickName Message\n")
 				}else{
 					// Get this user's nick name:
 					myNick := server.allUser[u].uNick
 					// Get dst conn:
 					sentToUser :=  privArgv[1]
 					if usrPtr, ok := server.allNick[sentToUser]; ok{
-						dstConn := usrPtr.conn
+						// dstConn := usrPtr.conn
 						text := privArgv[2]
 						thisMsg := Msg{
 							uName: myNick,
 							says: text,
 						}
-						private_msg(dstConn, thisMsg)
+						private_msg(usrPtr, thisMsg)
 					}else{
-						io.WriteString(conn, "Sorry! I can't find this user!\nPlease try again!")
+						io.WriteString(conn, "Sorry! I can't find this user!\nPlease try again!\n")
 					}
-					
 				}
 			/////////// PART:
 			case "/part":
 				if len(commandSplit) != 1 {
-					io.WriteString(conn, "Usage: /part")
+					io.WriteString(conn, "Usage: /part\n")
 				}else{
 					// 
 					// 1. Find the original channel an delete the user
@@ -279,11 +347,31 @@ func handleConnection(conn net.Conn, server Server) {
 						server.allChannel["default"].channelName = "default"
 						server.allChannel["default"].userMap = make(map[string]*User)
 						server.allChannel["default"].userMap[u] = server.allUser[u]
+						fmt.Println("NEW CHANNEL HAS BEEN CREATED: default")
 					}
 					server.allUser[u].currentChannel = "default"
+					// 3. Sent Channel message: says user leave the channel!
+					thisMsg := Msg{
+						uName: "",
+						says: "\n" + u + " left the channel...\n",
+					}
+					sentChannelMsg(oriChannel, server, thisMsg, u)
 				}
+			/////////// HELP:
+			case "/help":
+				io.WriteString(conn, "1. use LIST to list all channels\n\tUsage: /list\n")
+				io.WriteString(conn, "2. use PART to leave current channel\n\tUsage: /part\n")
+				io.WriteString(conn, "3. use NICK to change user's nick name\n\tUsage: /nick newNickName\n")
+				io.WriteString(conn, "4. use JOIN to join to another channel\n\tUsage: /join anotherChannel\n")
+				io.WriteString(conn, "5. use NAMES to list all user, also can use NAMES CHANNELNAME to list specific channel users\n\tUsage: /names [channel name]\n")
+				io.WriteString(conn, "6. use PRINMSG to sent direct message\n\tUsage: /privmsg NickName Message\n")
 			/////////// NORMAL MESSAGE:
 			default: // set msg to all user in the same channel
+				thisMsg := Msg{
+					uName: server.allUser[u].uNick,
+					says: scanner.Text(),
+				}
+				sentChannelMsg(server.allUser[u].currentChannel, server, thisMsg, u)
 			}
 			io.WriteString(conn, chatFormat(*server.allUser[u]))
 		}
@@ -295,7 +383,7 @@ func handleConnection(conn net.Conn, server Server) {
 // 		check the listening port: lsof -nP +c 15 | grep LISTEN
 ////////////////////////////////////
 func main() {
-	ln, err := net.Listen("tcp", "127.0.0.1:9000")
+	ln, err := net.Listen("tcp", ":9000")
 	defer ln.Close()
 	if err != nil {
 		// handle error

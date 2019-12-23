@@ -7,13 +7,7 @@ import (
 	"bufio"
 	"log"
 	"strings"
-	// "sync"
 )
-
-////////////////////////////////////
-// const:
-////////////////////////////////////
-// const max_user int = 100
 
 ////////////////////////////////////
 // struct:
@@ -23,13 +17,12 @@ type User struct {
 	uNick 				string
 	passward 			string
 	currentChannel		string
-	sentMessage chan	Msg
+	conn				net.Conn
 }
 
 type Channel struct {
 	channelName 	string
 	userMap 		map[string]*User
-	getMessage chan Msg
 }
 
 type Msg struct {
@@ -39,62 +32,18 @@ type Msg struct {
 
 type Server struct {
 	allUser 	map[string]*User
-	allNick		map[string]bool
+	allNick		map[string]*User
 	allChannel	map[string]*Channel
-	uJoin		chan Msg
-	uLeft		chan Msg
 }
 
 // type chanHolder struct {
-// 	setChanMsg chan string
-// 	getChanMsg chan string
+// 	setChanMsg chan Msg
+// 	getChanMsg chan Msg
 // }
-
-////////////////////////////////////
-// Global Variable:
-////////////////////////////////////
-
-// // Create map of unique user name:
-// var userMap = map[string]*User{}
-
-// // Create map of unique nick name: (only for check)
-// var nickMap = map[string]bool{}
-
-// // Create map of unique channel name as key and string array as array:
-// var channelMap = map[string]*Channel{}
 
 ////////////////////////////////////
 // functions:
 ////////////////////////////////////
-
-// NewChanHolder returns a new Holder backed by Channels.
-// func NewChanHolder() Holder {
-// 	h := chanHolder {
-// 	  setValCh: make(chan string),
-// 	  getValCh: make(chan string),
-// 	}
-// 	go h.mux()
-// 	return h
-// }
-
-// func (h chanHolder) mux() {
-// 	var value string
-// 	for {
-// 	  select {
-// 	  case value = <-h.setValCh: // set the current value.
-// 	  case h.getValCh <- value: // send the current value.
-// 	  }
-// 	}
-//   }
-
-//   func (h chanHolder) Get() string {
-// 	return <-h.getValCh
-//   }
-
-//   func (h chanHolder) Set(s string) {
-// 	h.setValCh <- s
-//   }
-  //-----------------------------------//
 
 func only_take_isprint(s string) string {
 	var s_return = ""
@@ -110,6 +59,10 @@ func only_take_isprint(s string) string {
 
 func chatFormat(u User) string {
 	return "\n"  + u.currentChannel + "/" + u.uNick + " > "
+}
+
+func private_msg(destConn net.Conn, msg Msg) {
+	io.WriteString(destConn, "\n" + msg.uName + " sent you message: " + msg.says)
 }
 
 func handleConnection(conn net.Conn, server Server) {
@@ -150,15 +103,17 @@ func handleConnection(conn net.Conn, server Server) {
 			nickname := scanner.Text()
 			_, nickOk = server.allNick[nickname]
 		}
-		server.allNick[nickname] = true
+		server.allNick[nickname] = server.allUser[uname]
 		server.allUser[uname].uNick = nickname
 		// 3. INPUT password:
 		io.WriteString(conn, "Please enter your password: ")
 		scanner.Scan()
 		inputPassword := scanner.Text()
 		server.allUser[uname].passward = inputPassword
-		fmt.Println("userMap = \n", server.allUser) // for debug...
-		fmt.Println("nickMap = \n", server.allNick) // for debug...
+		// fmt.Println("userMap = \n", server.allUser) // for debug...
+		// fmt.Println("nickMap = \n", server.allNick) // for debug...
+		// 4. Initionalize the message:
+		server.allUser[uname].conn = conn
 	}
 	// 4. ENTER chat room:
 	io.WriteString(conn, "Please enter chat room: ")
@@ -177,16 +132,14 @@ func handleConnection(conn net.Conn, server Server) {
 		server.allChannel[chatroom].channelName = chatroom
 		server.allChannel[chatroom].userMap = make(map[string]*User)
 		server.allChannel[chatroom].userMap[uname] = server.allUser[uname]
-		server.allChannel[chatroom].getMessage = make(chan Msg, 10)
 		// update user info of currentChannel
 		server.allUser[uname].currentChannel = chatroom
-		server.allUser[uname].sentMessage = make(chan Msg, 10)
 	}
 	// for debug...
-	for k,v := range server.allChannel {
-		fmt.Print("\nChannel: " + k + " , userArray = ")
-		fmt.Println(v.userMap)
-	}
+	// for k,v := range server.allChannel {
+	// 	fmt.Print("\nChannel: " + k + " , userArray = ")
+	// 	fmt.Println(v.userMap)
+	// }
 
 	io.WriteString(conn, "\n" + uname + " join the " + chatroom + "\n")
 
@@ -222,7 +175,7 @@ func handleConnection(conn net.Conn, server Server) {
 					newNick := strings.Trim(commandSplit[1], " ")
 					server.allUser[u].uNick = newNick
 					delete(server.allNick, oriNick)
-					server.allNick[newNick] = true
+					server.allNick[newNick] = server.allUser[uname]
 				}
 			/////////// JOIN:
 			case "/join":
@@ -243,13 +196,12 @@ func handleConnection(conn net.Conn, server Server) {
 						server.allChannel[newChannel].channelName = newChannel
 						server.allChannel[newChannel].userMap = make(map[string]*User)
 						server.allChannel[newChannel].userMap[u] = server.allUser[u]
-						server.allChannel[newChannel].getMessage = make(chan Msg, 10)
 					}
 					// 3. server.allUser[u].currentChannel => new channel
 					server.allUser[u].currentChannel = newChannel
 				}
-			/////////// NAMES:
-			case "/names": // allUser map[string]*User
+			/////////// NAMES: List all nick name
+			case "/names": // allNick map[string]*User
 				if len(commandSplit) == 2 {
 					// finding specific channel and list all user:
 					for room, chStruct := range server.allChannel {
@@ -287,6 +239,27 @@ func handleConnection(conn net.Conn, server Server) {
 				}
 			/////////// PRIVMSG:
 			case "/privmsg":
+				privArgv := strings.SplitN(scanner.Text(), " ", 3)
+				if len(privArgv) != 3 {
+					io.WriteString(conn, "Usage: /privmsg NickName Message")
+				}else{
+					// Get this user's nick name:
+					myNick := server.allUser[u].uNick
+					// Get dst conn:
+					sentToUser :=  privArgv[1]
+					if usrPtr, ok := server.allNick[sentToUser]; ok{
+						dstConn := usrPtr.conn
+						text := privArgv[2]
+						thisMsg := Msg{
+							uName: myNick,
+							says: text,
+						}
+						private_msg(dstConn, thisMsg)
+					}else{
+						io.WriteString(conn, "Sorry! I can't find this user!\nPlease try again!")
+					}
+					
+				}
 			/////////// PART:
 			case "/part":
 				if len(commandSplit) != 1 {
@@ -306,7 +279,6 @@ func handleConnection(conn net.Conn, server Server) {
 						server.allChannel["default"].channelName = "default"
 						server.allChannel["default"].userMap = make(map[string]*User)
 						server.allChannel["default"].userMap[u] = server.allUser[u]
-						server.allChannel["default"].getMessage = make(chan Msg, 10)
 					}
 					server.allUser[u].currentChannel = "default"
 				}
@@ -333,10 +305,8 @@ func main() {
 	// Create Server struct:
 	serverStruct := Server{
 		allUser:	make(map[string]*User),
-		allNick:	make(map[string]bool),
+		allNick:	make(map[string]*User),
 		allChannel: make(map[string]*Channel),
-		uJoin:	make(chan Msg),
-		uLeft:	make(chan Msg),
 	}
 	for {
 		conn, err := ln.Accept()

@@ -40,6 +40,7 @@ type Server struct {
 // functions:
 ////////////////////////////////////
 
+// not import import...only use in User's uName:
 func only_take_isprint(s string) string {
 	var s_return = ""
 	var len int = len(s)
@@ -52,15 +53,18 @@ func only_take_isprint(s string) string {
 	return s_return
 }
 
+// Print out prompt:
 func chatFormat(u User) string {
 	return "\n["  + u.currentChannel + "] " + u.uNick + " > "
 }
 
+// For command /privmsg:
 func private_msg(u *User, msg Msg) {
 	io.WriteString(u.conn, "\n" + msg.uName + " sent you message: " + msg.says + "\n")
 	io.WriteString(u.conn, chatFormat(*u))
 }
 
+// Sending message to a group of people:
 func public_msg(u User, msg Msg) {
 	if msg.uName == ""{
 		io.WriteString(u.conn, "\n" + msg.says + "\n")
@@ -70,6 +74,8 @@ func public_msg(u User, msg Msg) {
 	io.WriteString(u.conn, chatFormat(u))
 }
 
+// Get all users in current channel without the user who sending message.
+// Sub-function for sentChannelMsg():
 func getAllUsersConn(targetChannelName string, server Server, self string) []*User {
 	var connArray []*User
 	// Use channel name to get all user, and append connection into an array:
@@ -81,17 +87,20 @@ func getAllUsersConn(targetChannelName string, server Server, self string) []*Us
 	return connArray
 }
 
+// Sub-function for sentChannelMsg():
 func sentMultiMsg(channelConnArray []*User, msg Msg){
 	for _ , con := range channelConnArray{
 		public_msg(*con, msg)
 	}
 }
 
+// Sending message to specific channel:
 func sentChannelMsg(targetChannelName string, server Server, msg Msg, self string){
 	connArr := getAllUsersConn(targetChannelName, server, self)
 	sentMultiMsg(connArr, msg)
 }
 
+// Actually, I don't use this function...
 func countUser(server Server) int {
 	i := 0
 	for range server.allUser {
@@ -100,6 +109,7 @@ func countUser(server Server) int {
 	return i
 }
 
+// Actually, I don't use this function...
 func countChannel(server Server) int {
 	i := 0
 	for range server.allChannel {
@@ -108,6 +118,7 @@ func countChannel(server Server) int {
 	return i
 }
 
+// MAIN FUNCTION in this project: (concurrent function, the only goroutine I used)
 func handleConnection(conn net.Conn, server Server) {
 	defer conn.Close()
 
@@ -380,7 +391,11 @@ func handleConnection(conn net.Conn, server Server) {
 
 ////////////////////////////////////
 // MAIN:
-// 		check the listening port: lsof -nP +c 15 | grep LISTEN
+//	1. Listen port 9000
+//	2. Create Server struct
+//	3. go handleConnection(conn, serverStruct)
+//
+// 	ps. check the listening port: lsof -nP +c 15 | grep LISTEN
 ////////////////////////////////////
 func main() {
 	ln, err := net.Listen("tcp", ":9000")

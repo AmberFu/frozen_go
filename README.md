@@ -33,11 +33,17 @@ Discover Go and enrich concurrent programming skills by creating IRC server.
 8. Your server must support the following commands:
 
   8-1. PASS NICK USER - Initial authentication for a user.
+  
   8-2. NICK - Change nickname
+  
   8-3. JOIN - Makes the user join a channel. If the channel doesn’t exist, it will be created.
+  
   8-4. PART - Makes the user leave a channel.
+  
   8-5. NAMES - Lists all users connected to the server (bonus: make it RFC compliant with channel modes).
+  
   8-6. LIST - Lists all channels in the server (bonus: make it RFC compliant with channel modes).
+  
   8-7. PRIVMSG - Send a message to another user or a channel.
 
 

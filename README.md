@@ -6,7 +6,8 @@
 
 Discover Go and enrich concurrent programming skills by creating IRC server.
 
-[IRC standard](https://tools.ietf.org/html/rfc1459)
+> [IRC standard](https://tools.ietf.org/html/rfc1459)
+>
 
 ## General instructions
 

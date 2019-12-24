@@ -32,18 +32,32 @@ Discover Go and enrich concurrent programming skills by creating IRC server.
 
 8. Your server must support the following commands:
 
-  8-1. PASS NICK USER - Initial authentication for a user.
-  
-  8-2. NICK - Change nickname
-  
-  8-3. JOIN - Makes the user join a channel. If the channel doesn’t exist, it will be created.
-  
-  8-4. PART - Makes the user leave a channel.
-  
-  8-5. NAMES - Lists all users connected to the server (bonus: make it RFC compliant with channel modes).
-  
-  8-6. LIST - Lists all channels in the server (bonus: make it RFC compliant with channel modes).
-  
-  8-7. PRIVMSG - Send a message to another user or a channel.
+> 8-1. PASS NICK USER - Initial authentication for a user.
+>
+> 8-2. NICK - Change nickname
+>
+> 8-3. JOIN - Makes the user join a channel. If the channel doesn’t exist, it will be created.
+>
+> 8-4. PART - Makes the user leave a channel.
+> 
+> 8-5. NAMES - Lists all users connected to the server (bonus: make it RFC compliant with channel modes).
+> 
+> 8-6. LIST - Lists all channels in the server (bonus: make it RFC compliant with channel modes).
+>
+> 8-7. PRIVMSG - Send a message to another user or a channel.\
 
+[more detail...PDF](https://github.com/AmberFu/frozen_go/blob/master/frozen.en.pdf)
 
+## Usage: go run server.go
+
+1. RUN server: go run server.go & (keep in background)
+
+2. Client: nc localhost 9000 (This server use port 9000)
+
+## Project overview:
+
+1. Create 4 struct: Server, User, Channel, Msg.
+
+2. Use `go handleConnection()` do concurrency.
+
+3. Save each user's connection to communicate with group or with other user.
